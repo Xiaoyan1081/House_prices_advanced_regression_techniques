@@ -26,3 +26,16 @@ def fill_missing_cats(dataframe):
             if pd.isnull(c).sum() > 0:
                 dataframe[n] = c.fillna(c.mode()[0])
     return dataframe
+	
+
+def display_cols(dataframe, type = 'category', num_samples = 7):
+	mask = dataframe.dtypes == type
+	return dataframe.loc[:, mask].sample(num_samples)
+	
+
+def display_nums_stats(dataframe):
+    numericals = []
+    for n, c in dataframe.items():
+	    if is_numeric_dtype(c):
+		    numericals.append(n)
+    return dataframe[numericals].describe()
