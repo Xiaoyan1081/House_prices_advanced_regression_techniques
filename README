@@ -1,0 +1,4 @@
+This repository was built to play with Random Forest and XGBoost Regressor to predict housing prices in Ames, Iowa(USA).
+
+The code was used to take part in the below Kaggle's competition
+https://www.kaggle.com/c/house-prices-advanced-regression-techniques
