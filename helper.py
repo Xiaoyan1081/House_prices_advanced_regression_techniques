@@ -105,7 +105,7 @@ def display_nums_stats(dataframe):
 
 
 	
-def outliers_by_col(dataframe, multiplier = 1.5):
+def outliers_by_col(dataframe, multiplier = 1.5, plot_results = True, outliers_dictionary = False):
 	"""
 	Function used to determine outliers in each column.
 	
@@ -113,8 +113,11 @@ def outliers_by_col(dataframe, multiplier = 1.5):
 	
 	dataframe -just as parameter name implies, expects dataframe object
 	multiplier - value used for calculating Tukey's Interquartile Range. By default we assume that all values lower than Q1 - (1.5 * IQR)  or greather than Q3 + (1.5 * IQR) are outliers
+	plot_results - by default set to True. As a result boxplots for all columns with outliers will be plotted
+	outliers_dictionary - by default set to False. If True, dictionary with column names as keys and lists of row indexes containing outliers as values will be returned 
 	
 	"""
+	
 	outliers_dict = {}
 	for column in dataframe.columns:
 			if is_numeric_dtype(dataframe[column]):
@@ -126,11 +129,18 @@ def outliers_by_col(dataframe, multiplier = 1.5):
 				select_indices = list(np.where((dataframe[column] < lower_bound) | (dataframe[column] > upper_bound))[0])
 				if len(select_indices) > 0 :
 					outliers_dict[column] = select_indices
-	return outliers_dict
+
+	
+	if plot_results == True:
+		plot_categoricals(dataframe, outliers_dict.keys(), kind = 'box', figsize = (20,10))
+		
+	if outliers_dictionary == True:
+		return outliers_dict
+
 
 
 	
-def nominalnums_to_cat(dataframe, unique_values_split = 30,  return_boundary = 10):
+def nominalnums_to_cat(dataframe, unique_values_split = 30,  boundary = 10):
 	"""
 	Function to convert nominal numerical features into categorical variables. 
 	
@@ -138,7 +148,7 @@ def nominalnums_to_cat(dataframe, unique_values_split = 30,  return_boundary = 1
 	
 	dataframe -just as parameter name implies, expects dataframe object
 	unique_values_split - number of unique values to treat a variable as a categorical one. By default, variable's data type will be changed to 'category' if it has less than 30 unique values
-	return_boundary - decision boundary determining which variable names will be returned in list for further check. By default, all variables which take more than 10 unique values will be returned
+	boundary - decision boundary determining which variable names will be returned in list for further check. By default, all variables which take more than 10 unique values will be returned
 	
 	"""
 	cols_to_verify = []
@@ -147,25 +157,37 @@ def nominalnums_to_cat(dataframe, unique_values_split = 30,  return_boundary = 1
 			length = len(dataframe[col].value_counts())
 			if ((length < unique_values_split) and ('area' not in col)):
 				dataframe[col] = dataframe[col].astype('category')
-				if (length > return_boundary):
+				if (length > boundary):
 					cols_to_verify.append(col)
 	return(cols_to_verify)
 	
 
-def plot_suspicious(dataframe, columns):
+def plot_categoricals(dataframe, columns, kind = 'count', figsize = (20,10)):
 	"""
 	Function to plot suspicious categorical columns
 
 	Parameters:
 
 	dataframe - just as parameter name implies, expects dataframe object
-	columns - list of columns, e.g. those returned by 'nominalnums_to_cat' function
+	columns - list of columns or dictionary keys, e.g. list of columns returned by 'nominalnums_to_cat' function
+	kind - by default set to 'count' to display countplots for given columns. If 'box' will be used as a value then function will display box plots. 
 
 	"""
+	
 	length = len(columns)
-	plt.figure(figsize=(20,10))
+	if length <= 6:
+		plt.figure(figsize=figsize)
+	elif length > 6 and length <= 12:
+		plt.figure(figsize = next((x, int(y*2)) for x,y in [figsize]))
+	elif length > 12 and length < 18:
+		plt.figure(figsize = next((x, int(y*3)) for x,y in [figsize]))
+	elif length > 18 and length < 24:
+		plt.figure(figsize = next((x, int(y*3)) for x,y in [figsize]))
 	for ix, col in enumerate(columns):
 		plt.subplot(np.ceil(length/3), 3, ix+1)
-		sns.countplot(dataframe[col], orient = 'v')
+		if kind == 'count':
+			sns.countplot(dataframe[col])
+		elif kind == 'box':
+			sns.boxplot(dataframe[col])
 
 		
