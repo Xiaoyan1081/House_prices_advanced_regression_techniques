@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.model_selection import train_test_split
 from scipy.stats import iqr
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_categorical_dtype
 import math
@@ -223,25 +224,15 @@ def get_codes(dataframe):
 			dataframe[column] = dataframe[column].cat.codes
 			
 
-def rmsle(real, predicted):
-    sum=0.0
-    for x in range(len(predicted)):
-        if predicted[x]<0 or real[x]<0: #check for negative values
-            continue
-        p = np.log(predicted[x]+1)
-        r = np.log(real[x]+1)
-        sum = sum + (p - r)**2
-    return (sum/len(predicted))**0.5
-		
-def rmsle2(y, y0):
-    assert len(y) == len(y0)
-    return np.sqrt(np.mean(np.power(np.log1p(y)-np.log1p(y0), 2)))
-	
-	
+def rmsle(predicted, actual):
+    return np.sqrt(np.nansum(np.square(np.log(predicted + 1) - np.log(actual + 1))).mean())
+
+
+
 def rmse(x,y): return math.sqrt(((x-y)**2).mean())
 
 
-def print_score(model, X_train, X_val, y_train, y_val):
+def print_score(model, X_train, X_val, y_train, y_val, scoring_func):
 	"""
 	Function used for checking the accuracy of the regression model
 	
@@ -252,14 +243,21 @@ def print_score(model, X_train, X_val, y_train, y_val):
 	X_val - validation subset of explanatory variables
 	y_train - training subset of target variable
 	y_val - validation subset of target variable
+	scoring_func - scoring function to be assess the model performance. By default RMSE will be used.
 	
 	"""
-	res = [rmse(model.predict(X_train), y_train), rmse(model.predict(X_val), y_val), model.score(X_train, y_train), model.score(X_val, y_val)]
-	print(res)
+	if scoring_func == 'rmse':
+		res = [rmse(model.predict(X_train), y_train), rmse(model.predict(X_val), y_val), model.score(X_train, y_train), model.score(X_val, y_val)]
+		print('Training RMSE: {0:.3f} | Testing RMSE: {1:.3f} | Training R^2: {2:.3f} | Testing R^2: {3:.3f}'.format(res[0], res[1], res[2], res[3]))
+	
+	elif scoring_func == 'rmsle':	
+		res = [rmsle(model.predict(X_train), y_train), rmsle(model.predict(X_val), y_val), model.score(X_train, y_train), model.score(X_val, y_val)]
+		print('Training RMSLE: {0:.3f} | Testing RMSLE: {1:.3f} | Training R^2: {2:.3f} | Testing R^2: {3:.3f}'.format(res[0], res[1], res[2], res[3]))
+
 	
 	
 	
-def plot_feat_imp(model, dataframe):
+def plot_feat_imp(model, dataframe, boundary = 15, best_features = False):
 
 	"""
 	Function used for plotting the most important features found by model
@@ -268,17 +266,46 @@ def plot_feat_imp(model, dataframe):
 	
 	model - just as the parameter name implies, expects model object
 	dataframe - just as the parameter name implies, expects dataframe object
-
+	boundary - number of features we would like to plot
 	
 	"""
-	indices = np.argsort(model.feature_importances_)[::-1][:15]
+	indices = np.argsort(model.feature_importances_)[::-1][:boundary]
+	best_features_list = [col for col in dataframe.columns[indices]]
 
-	fig = plt.figure(figsize=(6, 9))
-	p = sns.barplot(y=dataframe.columns[indices][:15], x = model.feature_importances_[indices][:15], orient='h')
+	fig = plt.figure(figsize=(9, 12))
+	p = sns.barplot(y=dataframe.columns[indices][:boundary], x = model.feature_importances_[indices][:boundary], orient='h')
 	p.set_xlabel("Relative importance",fontsize=12)
 	p.set_ylabel("Features",fontsize=12)
-	p.tick_params(labelsize=9)
-	p.set_title("Selected classifier feature importance")
+	p.tick_params(labelsize=10)
+	p.set_title("Feature importances")
+	for i, v in enumerate(model.feature_importances_[indices][:boundary]):
+		plt.text(v, i, ""+str(np.round(v,3)), color='#e59471', va='center', fontweight='bold')
 
 	plt.show()
 	
+	if best_features == True:
+
+		return best_features_list
+	
+	
+def drop_best_feats(model, features, X, y, scoring_func):
+	"""
+	Function used to evaluate the performance of a model without best features. In each iteration model is dropping one of the best features.
+	
+	Parameters:
+	
+	model - just as the parameter name implies, expects model object
+	features - list of features to drop
+	X - training features vector
+	y - training target vector
+	scoring_func - function to be used for evaluation:  'rmse' or 'rmsle' 
+	
+	"""
+	for feature in features:
+		X_sub = X.drop(feature, axis = 1)
+		X_train, X_val, y_train, y_val = train_test_split(X_sub, y, test_size = 0.2, random_state = 123, shuffle = False)
+		model.fit(X_train, y_train)
+		print('Dropped feature: {} '.format(feature))
+		print_score(model, X_train, X_val, y_train, y_val, scoring_func = scoring_func)
+		print('\n')
+
