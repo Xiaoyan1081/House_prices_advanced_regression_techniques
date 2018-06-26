@@ -1,7 +1,0 @@
-lotfrontage - there are 2 properties having more than 300 feets of street connected to property, since the area of their parcel is also over 27000 squared feets, this might be true, hence we will not treat these values as outliers
-lotarea - there are 4 parcels having more than 100000 squared feets of area. Having a parcel with the area of 1 hectare or more is possible, but I assume that they are located on the outskirts and will not treat them as outliers.
-yearbuilt - looking at the boxplot, it's clearly visible that 50% of the properties were built before 1975 and 75% before or in 2000. Those built before 1890 are denoted as outliers, but we will treat them as normal observations.
-bsmtfinsf2 - looking at the distribution of values for this variable, I decided to convert it into a binary categorical variable since most of the properties has 0 type 2 finished square feets.
-lowqualfinsf - looking at the distribution of values for this variable, I decided to convert it into a binary categorical variable since most of the properties has 0 squared feets of low quality finishes
-
- 
