@@ -3,8 +3,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.model_selection import train_test_split
-from scipy.stats import iqr
+from sklearn.model_selection import train_test_split, KFold, cross_val_score
+from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, clone
+from sklearn.metrics import mean_squared_error
+from scipy import stats
+from scipy.stats import iqr, norm, skew
+from scipy.special import boxcox1p
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_categorical_dtype
 import math
 
@@ -163,9 +167,9 @@ def nominalnums_to_cat(dataframe, unique_values_split = 30,  boundary = 10):
 	return(cols_to_verify)
 	
 
-def plot_categoricals(dataframe, columns, kind = 'count', figsize = (20,10)):
+def display_plots(dataframe, columns, kind = 'count', figsize = (20,10)):
 	"""
-	Function for plotting suspicious categorical columns
+	Function for plotting suspicious categorical columns.
 
 	Parameters:
 
@@ -180,16 +184,20 @@ def plot_categoricals(dataframe, columns, kind = 'count', figsize = (20,10)):
 		plt.figure(figsize=figsize)
 	elif length > 6 and length <= 12:
 		plt.figure(figsize = next((x, int(y*2)) for x,y in [figsize]))
-	elif length > 12 and length < 18:
+	elif length > 12 and length <= 18:
 		plt.figure(figsize = next((x, int(y*3)) for x,y in [figsize]))
-	elif length > 18 and length < 24:
-		plt.figure(figsize = next((x, int(y*3)) for x,y in [figsize]))
+	elif length > 18 and length <= 24:
+		plt.figure(figsize = next((x, int(y*4)) for x,y in [figsize]))
+	elif length > 24 and length <= 30:
+		plt.figure(figsize = next((x, int(y*5)) for x,y in [figsize]))	
 	for ix, col in enumerate(columns):
 		plt.subplot(np.ceil(length/3), 3, ix+1)
 		if kind == 'count':
 			sns.countplot(dataframe[col])
 		elif kind == 'box':
 			sns.boxplot(dataframe[col])
+		elif kind == 'dist':
+			sns.distplot(dataframe[col], fit = norm)
 			
 			
 def binarize_numericals(dataframe, columns):
@@ -212,7 +220,7 @@ def binarize_numericals(dataframe, columns):
 		
 def get_codes(dataframe):
 	"""
-	Function for converting values of categorical variables into numbers
+	Function for converting values of categorical variables into numbers.
 	
 	Parameters:
 	
@@ -224,35 +232,59 @@ def get_codes(dataframe):
 			dataframe[column] = dataframe[column].cat.codes
 			
 
-def rmsle(predicted, actual):
-    return np.sqrt(np.nansum(np.square(np.log(predicted + 1) - np.log(actual + 1))).mean())
-
+def rmsle(y, y_pred):
+    return np.sqrt(mean_squared_error(y, y_pred))
 
 
 def rmse(x,y): return math.sqrt(((x-y)**2).mean())
 
 
-def print_score(model, X_train, X_val, y_train, y_val, scoring_func):
+def rmsle_cv(model, trainingset, target, n_folds):
+	
+    rmse= np.sqrt(-cross_val_score(model, trainingset, target, scoring="neg_mean_squared_error", cv = n_folds, n_jobs = -1))
+    return(rmse)
+	
+
+def print_score(model, trainingset, target, scoring_func = 'rmse', n_folds = None):
 	"""
-	Function used for checking the accuracy of the regression model
+	Function used for checking the accuracy of the regression model.
 	
 	Parameters:
 	
 	model -just as the parameter name implies, expects model object
-	X_train - training subset of explanatory variables
-	X_val - validation subset of explanatory variables
-	y_train - training subset of target variable
-	y_val - validation subset of target variable
-	scoring_func - scoring function to be assess the model performance. By default RMSE will be used.
+	trainingset - training dataset
+	target - target variable
+	scoring_func - scoring function to assess the model's performance. By default RMSE will be used
 	
 	"""
 	if scoring_func == 'rmse':
+		X_train, X_val, y_train, y_val = train_test_split(trainingset, target, test_size = 0.2, random_state = 123, shuffle = True)
 		res = [rmse(model.predict(X_train), y_train), rmse(model.predict(X_val), y_val), model.score(X_train, y_train), model.score(X_val, y_val)]
 		print('Training RMSE: {0:.3f} | Testing RMSE: {1:.3f} | Training R^2: {2:.3f} | Testing R^2: {3:.3f}'.format(res[0], res[1], res[2], res[3]))
 	
-	elif scoring_func == 'rmsle':	
+	elif scoring_func == 'rmsle':
+		X_train, X_val, y_train, y_val = train_test_split(trainingset, target, test_size = 0.2, random_state = 123, shuffle = True)
 		res = [rmsle(model.predict(X_train), y_train), rmsle(model.predict(X_val), y_val), model.score(X_train, y_train), model.score(X_val, y_val)]
 		print('Training RMSLE: {0:.3f} | Testing RMSLE: {1:.3f} | Training R^2: {2:.3f} | Testing R^2: {3:.3f}'.format(res[0], res[1], res[2], res[3]))
+		
+	elif scoring_func == 'rmsle_cv':	
+		if isinstance(trainingset, np.ndarray) & isinstance(target, np.ndarray):
+			n_folds = n_folds
+			kf = KFold(n_folds, shuffle=True, random_state=123).get_n_splits(trainingset)
+			res = rmsle_cv(model, trainingset, target, n_folds )
+			model = model.fit(trainingset, target)
+			print('Average cross-validated RMSE: {0:.4f}  |  Standard Deviation of RMSE: {1:.4f}  |  Training R^2: {2:.3f}'.format(res.mean(), res.std(), model.score(trainingset, target)))
+			
+		else:
+			n_folds = n_folds
+			kf = KFold(n_folds, shuffle=True, random_state=123).get_n_splits(trainingset.values)
+			res = rmsle_cv(model, trainingset, target, n_folds )
+			model = model.fit(trainingset, target)
+			print('Average cross-validated RMSE: {0:.4f}  |  Standard Deviation of RMSE: {1:.4f}  |  Training R^2: {2:.3f}'.format(res.mean(), res.std(), model.score(trainingset, target)))
+			
+		
+		
+		
 
 	
 	
@@ -260,7 +292,7 @@ def print_score(model, X_train, X_val, y_train, y_val, scoring_func):
 def plot_feat_imp(model, dataframe, boundary = 15, best_features = False):
 
 	"""
-	Function used for plotting the most important features found by model
+	Function used for plotting the most important features found by model.
 	
 	Parameters:
 	
@@ -309,3 +341,165 @@ def drop_best_feats(model, features, X, y, scoring_func):
 		print_score(model, X_train, X_val, y_train, y_val, scoring_func = scoring_func)
 		print('\n')
 
+		
+
+def plot_distqq(x, dataframe):
+	"""
+	Function used to plot distribution of the desired numerical variable with normal distribution overlayed and quantile-quantile plot.
+	
+	Parameters:
+	
+	x - numerical variable to plot
+	dataframe - just as the name implies, expects dataframe object
+
+	
+	"""
+
+	sns.distplot(dataframe[x], fit = norm)
+	# Get the fitted parameters used by the function
+	mu, sigma = norm.fit(dataframe[x])
+	
+	# Now plot the distribution
+	plt.legend(['Normal distribution ($\mu=$ {:.2f} and $\sigma=$ {:.2f} )'.format(mu, sigma)], loc='best')
+	plt.ylabel('Frequency')
+	plt.title('{} distribution'.format(x))
+	
+	#Get also the QQ-plot
+	fig = plt.figure()
+	res = stats.probplot(dataframe[x], plot=plt)
+	plt.show()
+	
+
+def percent_missing(dataframe, ascending = False, quantity = 30):
+	"""
+	Function used to calculate the percentage of missing data. As a result returns dataframe.
+	
+	Parameters:
+	
+	dataframe - expects dataframe object
+	ascending - whether values should be sorted in ascending or descending order. By default dataframe will be sorted descendingly.
+	quantity - number of variables to display
+
+	
+	"""
+	missing = (dataframe.isnull().sum() / len(dataframe)) * 100
+	missing = missing.drop(missing[missing == 0].index).sort_values(ascending = ascending) [:quantity]
+	missing = pd.DataFrame({'Missing Ratio' : missing})
+	return missing
+
+	
+def plot_bar(x, y, xlabel, ylabel, title, figsize = (12, 8)):
+	"""
+	Function used to display a barplot of desired variables.
+	
+	Parameters:
+	
+	x - feature variable
+	y - values of desired feature variable
+	figsize - plot size. By default width = 12 and height = 8
+	xlabel - just as the name implies, expects label for x-axis
+	ylabel - xlabel - just as the name implies, expects label for y-axis
+	title - xlabel - just as the name implies, expects plot title
+
+	
+	"""
+
+	f, ax = plt.subplots(figsize = figsize)
+	plt.xticks(rotation = '90')
+	sns.barplot(x = x, y = y)
+	plt.xlabel(xlabel, fontsize = 13)
+	plt.ylabel(ylabel, fontsize = 13)
+	plt.title(title, fontsize = 13)
+	
+def calculate_skewness(dataframe):
+	"""
+	Function used to calculate skewness across numerical features. As a result returns dataframe.
+	
+	Parameters:
+	
+	dataframe - just as the name implies, expects dataframe object
+	
+	"""
+
+	numeric_feats = dataframe.dtypes[(dataframe.dtypes != "category") & (dataframe.dtypes != "object")].index
+	# Check the skew of all numerical features
+	skewed_feats = dataframe[numeric_feats].apply(lambda x: skew(x.dropna())).sort_values(ascending=False)
+	skewness = pd.DataFrame({'Skewness' :skewed_feats})
+	return skewness
+	
+
+def box_cox_transform(dataframe, skewnesses, lamb):
+	"""
+	Function used to apply box-cox transformation for highly skewed features to make them look more normally distributed.
+	
+	Parameters:
+	
+	dataframe - just as the name implies, expects dataframe object
+	skewenesses - expects dataframe object with calculated skewnesses. Use output from 'calculate_skeweness' function.
+	lamb - lambda value to be used with box-cox transformation. Be defalt boxcox1p is used as it is better for smaller x values. Setting lamb = 0 is equivalent to log1p.
+	
+	"""
+	
+	skewness = skewnesses[abs(skewnesses) > 0.75]
+	skewed_features = skewness.index
+	lamb = lamb 
+	for feature in skewed_features:
+		dataframe[feature] = boxcox1p(dataframe[feature], lamb)
+		
+
+class AveragedScorer(BaseEstimator, RegressorMixin, TransformerMixin):
+    def __init__(self, models):
+        self.models = models
+        
+    # we define clones of the original models to fit the data in
+    def fit(self, X, y):
+        self.models_ = [clone(x) for x in self.models]
+        
+        # Train cloned base models
+        for model in self.models_:
+            model.fit(X, y)
+
+        return self
+    
+    #Now we do the predictions for cloned models and average them
+    def predict(self, X):
+        predictions = np.column_stack([
+            model.predict(X) for model in self.models_
+        ])
+        return np.mean(predictions, axis=1)   
+		
+		
+class StackedAveragedScorer(BaseEstimator, RegressorMixin, TransformerMixin):
+    def __init__(self, base_models, meta_model, n_folds=5):
+        self.base_models = base_models
+        self.meta_model = meta_model
+        self.n_folds = n_folds
+   
+    # We again fit the data on clones of the original models
+    def fit(self, X, y):
+        self.base_models_ = [list() for x in self.base_models]
+        self.meta_model_ = clone(self.meta_model)
+        kfold = KFold(n_splits=self.n_folds, shuffle=True, random_state=123)
+        
+        # Train cloned base models then create out-of-fold predictions
+        # that are needed to train the cloned meta-model
+        out_of_fold_predictions = np.zeros((X.shape[0], len(self.base_models)))
+        for i, model in enumerate(self.base_models):
+            for train_index, holdout_index in kfold.split(X, y):
+                instance = clone(model)
+                self.base_models_[i].append(instance)
+                instance.fit(X[train_index], y[train_index])
+                y_pred = instance.predict(X[holdout_index])
+                out_of_fold_predictions[holdout_index, i] = y_pred
+                
+        # Now train the cloned  meta-model using the out-of-fold predictions as new feature
+        self.meta_model_.fit(out_of_fold_predictions, y)
+        return self
+   
+    #Do the predictions of all base models on the test data and use the averaged predictions as 
+    #meta-features for the final prediction which is done by the meta-model
+    def predict(self, X):
+        meta_features = np.column_stack([
+            np.column_stack([model.predict(X) for model in base_models]).mean(axis=1)
+            for base_models in self.base_models_ ])
+        return self.meta_model_.predict(meta_features)
