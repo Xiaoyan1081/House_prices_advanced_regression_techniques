@@ -6,6 +6,7 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
 from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, clone
 from sklearn.metrics import mean_squared_error
+from sklearn.pipeline import Pipeline
 from scipy import stats
 from scipy.stats import iqr, norm, skew
 from scipy.special import boxcox1p
@@ -284,10 +285,6 @@ def print_score(model, trainingset, target, scoring_func = 'rmse', n_folds = Non
 			
 		
 		
-		
-
-	
-	
 	
 def plot_feat_imp(model, dataframe, boundary = 15, best_features = False):
 
@@ -503,3 +500,142 @@ class StackedAveragedScorer(BaseEstimator, RegressorMixin, TransformerMixin):
             np.column_stack([model.predict(X) for model in base_models]).mean(axis=1)
             for base_models in self.base_models_ ])
         return self.meta_model_.predict(meta_features)
+		
+		
+def reg_importances(model, dataframe, boundary = None, plot = False, figsize = (9, 24), step_name = None):
+	
+	
+	"""
+	Function used for plotting the most important features found by regression model.
+	
+	Parameters:
+	
+	model - trained model 
+	dataframe - just as the parameter name implies, expects dataframe object
+	boundary - number of features we would like to return/plot. By default all features with absolute value > 0 will be returned
+	plot - whether to plot feature importances or not. By default "False"
+	figsize - just as the parameter name implies, enables customizing plot size. By default width = 9 and height = 24
+	step_name - argument required if model was used in Pipeline object hence is of Pipeline type and expects exact step name to retrieve coefficients
+	
+	"""
+
+	
+	
+	if isinstance(model, Pipeline):
+		coefs_pos = [coef for coef in model.named_steps[step_name].coef_ if coef > 0]
+		coefs_neg = [coef for coef in model.named_steps[step_name].coef_ if coef < 0]
+		
+		if boundary == None:
+			pos_imps = pd.DataFrame({'Importance': coefs_pos }, index = dataframe.columns[model.named_steps[step_name].coef_ > 0]).sort_values('Importance', ascending = False)
+			neg_imps = pd.DataFrame({'Importance': coefs_neg }, index = dataframe.columns[model.named_steps[step_name].coef_ < 0]).sort_values('Importance', ascending = True)
+		else:
+			pos_imps = pd.DataFrame({'Importance': coefs_pos }, index = dataframe.columns[model.named_steps[step_name].coef_ > 0]).sort_values('Importance', ascending = False)[:boundary]
+			neg_imps = pd.DataFrame({'Importance': coefs_neg }, index = dataframe.columns[model.named_steps[step_name].coef_ < 0]).sort_values('Importance', ascending = True)[:boundary]
+			
+	else:
+		coefs_pos = [coef for coef in model.coef_ if coef > 0]
+		coefs_neg = [coef for coef in model.coef_ if coef < 0]
+		
+		if boundary == None:
+			pos_imps = pd.DataFrame({'Importance': coefs_pos }, index = dataframe.columns[model.coef_ > 0]).sort_values('Importance', ascending = False)
+			neg_imps = pd.DataFrame({'Importance': coefs_neg }, index = dataframe.columns[model.coef_ < 0]).sort_values('Importance', ascending = True)
+		else:
+			pos_imps = pd.DataFrame({'Importance': coefs_pos }, index = dataframe.columns[model.coef_ > 0]).sort_values('Importance', ascending = False)[:boundary]
+			neg_imps = pd.DataFrame({'Importance': coefs_neg }, index = dataframe.columns[model.coef_ < 0]).sort_values('Importance', ascending = True)[:boundary]
+	
+	if plot == True:
+		fig = plt.figure(figsize = figsize)
+		plt.subplot(211)	
+		p = sns.barplot(y= pos_imps.index, x = pos_imps['Importance'], orient='h')
+		p.set_xlabel("Relative importance",fontsize=12)
+		p.set_ylabel("Features",fontsize=12)
+		plt.title("Positive importances")
+		for i, v in enumerate(pos_imps['Importance']):
+			plt.text(v, i, ""+str(np.round(v,3)), color='#e59471', va='center', fontweight='bold')
+			
+		
+		plt.subplot(212)
+		p = sns.barplot(y=neg_imps.index, x = neg_imps['Importance'], orient='h')
+		p.set_xlabel("Relative importance",fontsize=12)
+		p.set_ylabel("Features",fontsize=12)
+		plt.title("Negative importances")
+
+		for i, v in enumerate(neg_imps['Importance']):
+			plt.text(v, i, ""+str(np.round(v,3)), color='#e59471', va='center', ha = 'right', fontweight='bold')
+			
+		plt.subplots_adjust(top = 0.9)
+		plt.show()
+		
+	return pos_imps, neg_imps
+		
+
+
+def plot_counts(dataframe, x, hue = None, boundary = None, ascending = None, figsize = (12,8), xlabel = 'Feature', ylabel = 'Counts', title = '', fontsize = 13, rotation = None, palette = None):
+    """
+    Function used to display a countplot of desired variables.
+
+    Parameters:
+    
+    dataframe = just as the name implies, expects datatframe object
+    x - feature variable
+    hue - categorical variable in data to map plot aspects to different colors
+    boundary - number of unique feature values to display. By default set to None. Useful when there are dozens of possible values
+    ascending - used when boundary is specified. By default set to None as order depends on order of the hue variable. 
+    figsize - plot size. By default width = 12 and height = 8
+    xlabel - just as the name implies, expects label for x-axis
+    ylabel - just as the name implies, expects label for y-axis
+    title -  just as the name implies, expects plot title
+
+    """
+    f, ax = plt.subplots(figsize = figsize)
+    
+    if palette != None:
+        sns.set_palette(palette)
+    else:
+        sns.set_palette(palette = None)
+    if (boundary != None) & (ascending == False): 
+        sns.countplot(x = x, hue = hue, data = dataframe, order = dataframe[x].value_counts().iloc[:boundary].index)
+    elif (boundary != None) & (ascending == True):
+        sns.countplot(x = x, hue = hue, data = dataframe, order = dataframe[x].value_counts(ascending = True).iloc[:boundary].index)
+    else:
+        sns.countplot(x = x, hue = hue, data = dataframe)
+        
+    if rotation != None:
+        plt.xticks(rotation = rotation)
+    plt.xlabel(xlabel, fontsize = fontsize)
+    plt.ylabel(ylabel, fontsize = fontsize)
+    plt.title(title, fontsize = fontsize)
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
